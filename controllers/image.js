@@ -301,7 +301,7 @@ exports.getAllPublishedImages = async (req, res, next) => {
 };
 
 exports.deleteImage = async (req, res, next) => {
-  const imageId = req.params.imageId;
+  const imageId = req.params.imageId; 
   try {
     const image = await Image.findById(imageId).populate("creator");
     const user = await User.findById(image.creator);
