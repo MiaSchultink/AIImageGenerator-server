@@ -1,0 +1,417 @@
+const HttpError = require("../models/http-error");
+const User = require("../models/user");
+const Image = require("../models/image");
+const fetch = require("node-fetch");
+const fs = require("fs");
+const FormData = require("form-data");
+
+const FIXED_DIMENTION = 1024;
+
+function numberAspect(stringAspect) {
+  if (stringAspect) {
+    const widthRat = Number(stringAspect.split("X")[0]);
+    const heightRat = Number(stringAspect.split("X")[1]);
+    return { width: widthRat, height: heightRat };
+  } else {
+    return { width: 1, height: 1 };
+  }
+}
+
+function downloadImageFromBase64(base64Data, response, imageName) {
+  const base64Image = base64Data.split(";base64,").pop();
+  const binaryData = Buffer.from(base64Image, "base64");
+  const fileName = imageName +".png"
+  response.setHeader("Content-Type", "image/png");
+  response.setHeader("Content-Disposition", "attachment; filename=image.png");
+  console.log(response)
+  response.end(binaryData);
+}
+
+async function sendStableDiffusionPrompt(prompt, widthRat, heightRat, style) {
+  try {
+    let width;
+    let height;
+    if(widthRat < heightRat){
+      width = FIXED_DIMENTION * (widthRat / heightRat);
+      height = FIXED_DIMENTION
+    }
+    else if(heightRat > widthRat){
+      width = FIXED_DIMENTION;
+      height = FIXED_DIMENTION * (heightRat / widthRat);
+    }
+    else{
+      height = width = FIXED_DIMENTION
+    }
+    height = Math.round(height);
+    const apiKey = process.env.STABLEDIFFUSION_API_KEY;
+    const url = `https://api.stability.ai/v1/generation/${process.env.STABLEDIFFUSION_ENGINE_ID}/text-to-image`;
+    const options = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        text_prompts: [
+          {
+            text: prompt,
+          },
+        ],
+        cfg_scale: 7,
+        clip_guidance_preset: "FAST_BLUE",
+        height: height,
+        width: width,
+        samples: 1,
+        steps: 30,
+        style_preset: style || "photographic",
+      }),
+    };
+    console.log("Sending to Stability AI", url, options);
+    const response = await fetch(url, options);
+    if (!response.ok) {
+      throw new Error(`Non-200 response: ${await response.text()}`);
+    }
+    const result = (await response.json()).artifacts[0].base64;
+    return result;
+  } catch (err) {
+    console.log(err);
+    return null;
+  }
+}
+
+async function imageToImageStabilityAI(prompt, base64) {
+  const engineId = "stable-diffusion-v1-5";
+  const apiHost = process.env.API_HOST ?? "https://api.stability.ai";
+  const apiKey = process.env.STABLEDIFFUSION_API_KEY;
+
+  if (!apiKey) throw new Error("Missing Stability API key.");
+
+  const base64Data = base64.split(",")[1];
+  const binaryData = Buffer.from(base64Data, "base64");
+
+  const formData = new FormData();
+  formData.append("init_image", binaryData);
+  formData.append("init_image_mode", "IMAGE_STRENGTH");
+  formData.append("image_strength", 0.35);
+  formData.append("text_prompts[0][text]", prompt);
+  formData.append("cfg_scale", 7);
+  formData.append("clip_guidance_preset", "FAST_BLUE");
+  formData.append("samples", 1);
+  formData.append("steps", 30);
+
+  console.log("sending to stability ai", formData);
+
+  const response = await fetch(
+    `${apiHost}/v1/generation/${engineId}/image-to-image`,
+    {
+      method: "POST",
+      headers: {
+        ...formData.getHeaders(),
+        Accept: "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Non-200 response: ${await response.text()}`);
+  }
+
+  const responseJSON = await response.json();
+  const newBase64 = responseJSON.artifacts[0].base64;
+  console.log("done image to iamge");
+  return newBase64;
+}
+
+async function stabilitAIUpscale(base64) {
+  const engineId = "esrgan-v1-x2plus";
+  const apiHost = process.env.API_HOST ?? "https://api.stability.ai";
+  const apiKey = process.env.STABLEDIFFUSION_API_KEY;
+
+  if (!apiKey) throw new Error("Missing Stability API key.");
+
+  const base64Data = base64.split(",")[1];
+  const binaryData = Buffer.from(base64Data, "base64");
+
+  const formData = new FormData();
+  formData.append("image", binaryData);
+  formData.append("width", 1024);
+
+  console.log("Upscaling image", formData);
+
+  const response = await fetch(
+    `${apiHost}/v1/generation/${engineId}/image-to-image/upscale`,
+    {
+      method: "POST",
+      headers: {
+        ...formData.getHeaders(),
+        Accept: "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Non-200 response: ${await response.text()}`);
+  }
+
+  const image = (await response.json()).artifacts[0];
+  const newBase64 = image.base64;
+  console.log("done upscaling image");
+  return newBase64;
+}
+
+async function stablityAIMask(base64) {
+  const engineId = "stable-inpainting-512-v2-0";
+  const apiHost = process.env.API_HOST ?? "https://api.stability.ai";
+  const apiKey = process.env.STABLEDIFFUSION_API_KEY;
+
+  if (!apiKey) throw new Error("Missing Stability API key.");
+
+  const formData = new FormData();
+  formData.append("init_image", fs.readFileSync("galaxy.png"));
+  formData.append("mask_image", fs.readFileSync("galaxy2.png"));
+  formData.append("mask_source", "MASK_IMAGE_WHITE");
+  formData.append(
+    "text_prompts[0][text]",
+    "A large spiral galaxy with a bright central bulge and a ring of stars around it"
+  );
+  formData.append("cfg_scale", "7");
+  formData.append("clip_guidance_preset", "FAST_BLUE");
+  formData.append("samples", 1);
+  formData.append("steps", 30);
+
+  const response = await fetch(
+    `${apiHost}/v1/generation/${engineId}/image-to-image/masking`,
+    {
+      method: "POST",
+      headers: {
+        ...formData.getHeaders(),
+        Accept: "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Non-200 response: ${await response.text()}`);
+  }
+
+  const responseJSON = await response.json();
+
+  responseJSON.artifacts.forEach((image, index) => {
+    fs.writeFileSync(
+      `v1_img2img_masking_${index}.png`,
+      Buffer.from(image.base64, "base64")
+    );
+  });
+}
+
+exports.createImage = async (req, res, next) => {
+  try {
+    const {
+      imageName,
+      imagePrompt,
+      aspectRatio,
+      colors,
+      themes,
+      style,
+      published,
+    } = req.body;
+    let user;
+    try {
+      user = await User.findById(req.userData.userId);
+    } catch (err) {
+      console.log(err);
+      const error = new HttpError("Could not find user for provided ID", 404);
+      return next(error);
+    }
+
+    if (!user) {
+      const error = new HttpError("No user found", 500);
+      return next(error);
+    }
+
+    function tweekPrompt(originalPrompt, themes, colors) {
+      let newPrompt = originalPrompt;
+      function addColors() {
+        colors.forEach((color, index, colors) => {
+          newPrompt += ", " + color;
+        });
+        return newPrompt;
+      }
+      function addThemes() {
+        themes.forEach((theme, index, themes) => {
+          newPrompt += ", " + theme;
+        });
+        return newPrompt;
+      }
+      newPrompt = addColors();
+      newPrompt = addThemes();
+      return newPrompt;
+    }
+    const finalPrompt = tweekPrompt(imagePrompt, themes, colors);
+    const numAspect = numberAspect(aspectRatio);
+
+    const imageBase64 = await sendStableDiffusionPrompt(
+      finalPrompt,
+      numAspect.width,
+      numAspect.height,
+      style
+    );
+    const newBase64 = "data:image/jpeg;base64," + imageBase64;
+
+    const image = new Image({
+      name: imageName,
+      prompt: finalPrompt,
+      base64: newBase64,
+      creator: user._id,
+      width: FIXED_DIMENTION,
+      height: FIXED_DIMENTION * (numAspect.height / numAspect.width),
+      colors: colors,
+      themes: themes,
+      style: style,
+      published: published,
+    });
+
+    await image.save();
+    user.images.push(image);
+    await user.save();
+    res.status(200).json({ base64: imageBase64 });
+  } catch (err) {
+    console.log(err);
+    const error = new HttpError("There was a problem creating this image", 500);
+    return next(error);
+  }
+};
+
+exports.getAllPublishedImages = async (req, res, next) => {
+  try {
+    const images = await Image.find({ published: true }).exec();
+    res.status(200).json({ images: images });
+  } catch (err) {
+    console.log(err);
+    const error = new HttpError("Something went wrong", 500);
+    return next(error);
+  }
+};
+
+exports.deleteImage = async (req, res, next) => {
+  const imageId = req.params.imageId;
+  try {
+    const image = await Image.findById(imageId).populate("creator");
+    const user = await User.findById(image.creator);
+    user.images.pull(image._id);
+    await image.deleteOne();
+    await user.save();
+    res.status(200).json({ image: image });
+  } catch (err) {
+    console.log(err);
+    const error = new HttpError("Could not delete image", 500);
+    return next(error);
+  }
+};
+
+exports.getImage = async (req, res, next) => {
+  try {
+    const imageId = req.params.imageId;
+    const image = await Image.findById(imageId).populate("creator");
+    res.status(200).json({ image: image });
+  } catch (err) {
+    const error = new HttpError("Could not get image", 500);
+    return next(error);
+  }
+};
+
+exports.editImage = async (req, res, next) => {
+  const imageId = req.params.imageId;
+  let image;
+  try {
+    image = await Image.findById(imageId);
+  } catch (err) {
+    console.log(err);
+    const error = new HttpError("Could not get image", 404);
+    return next(error);
+  }
+  try {
+    const newBase64 = await imageToImageStabilityAI(
+      req.body.correctingInfo,
+      image.base64
+    );
+    console.log(newBase64);
+    const modifiedBase64 = "data:image/jpeg;base64," + newBase64;
+    image.base64 = modifiedBase64;
+    await image.save();
+    res.status(200).json({ newImage: image });
+  } catch (err) {
+    console.log(err);
+    const error = new HttpError("Could not edit image", 500);
+    return next(error);
+  }
+};
+
+exports.upscale = async (req, res, next) => {
+  const imageId = req.params.imageId;
+  let image;
+  try {
+    image = await Image.findById(imageId);
+  } catch (err) {
+    console.log(err);
+    const error = new HttpError("Could not get image", 404);
+    return next(error);
+  }
+  try {
+    const newBase64 = await stabilitAIUpscale(image.base64);
+    const modifiedBase64 = "data:image/jpeg;base64," + newBase64;
+    image.base64 = modifiedBase64;
+    await image.save();
+    res.status(200).json({ newImage: image });
+  } catch (err) {
+    console.log(err);
+    const error = new HttpError("Failed to upscale image", 500);
+    return next(error);
+  }
+};
+
+exports.mask = async (req, res, next) => {
+  let image;
+  try {
+    image = await Image.findById(req.params.imageId);
+  } catch (err) {
+    console.log(err);
+    const error = new HttpError("Could not find image", 404);
+    return next(error);
+  }
+  try {
+    const newBase64 = await stablityAIMask(image.base64);
+    const modifiedBase64 = "data:image/jpeg;base64," + newBase64;
+
+    res.status(200).json({ newImage: image });
+  } catch (err) {
+    console.log(err);
+    const error = new HttpError("Could not mask image", 500);
+    return next(error);
+  }
+};
+
+exports.downloadImage = async (req, res, next) => {
+  let image;
+  try {
+    image = await Image.findById(req.params.imageId);
+  } catch (err) {
+    console.log(err);
+    const error = new HttpError("Could not find image", 404);
+    return next(error);
+  }
+  try {
+    downloadImageFromBase64(image.base64, res, image.name)
+  } catch (err) {
+    console.log(err);
+    const error = new HttpError("Could not download image", 500);
+    return next(error);
+  }
+};

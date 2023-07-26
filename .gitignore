@@ -1,0 +1,70 @@
+# Logs
+logs
+*.log
+
+# Dependency directories
+node_modules/
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build output
+build/
+out/
+
+# Testing and coverage reports
+coverage/
+.nyc_output/
+
+# Runtime data
+pids/
+*.pid
+*.pid.lock
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Editor and IDE files
+.idea/
+.vscode/
+*.sublime-*
+*.swp
+*.swo
+
+# Compiled binary addons
+*.node
+
+# Development tools
+.npmrc
+yarn-error.log
+yarn-debug.log*
+
+# Ignore package-lock.json for apps published to npm
+# Comment the next line if you are not working with npm modules
+package-lock.json
+
+# Ignore yarn.lock if not using Yarn as a package manager
+# Comment the next line if you are not working with Yarn
+yarn.lock
+
+# Ignoring local development configuration files
+config/local.json
+config/local.js
+config/local.yaml
+config/local.yml
+config/local.env
+config/local.env.js
+config/local.env.json
+config/local.env.yaml
+config/local.env.yml
+
+# Ignoring generated documentation files
+doc/
+docs/
+
+# Ignoring production built files
+dist/
