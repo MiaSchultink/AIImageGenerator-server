@@ -9,7 +9,6 @@ sgMail.setApiKey(process.env.SG_API_KEY);
 
 const HttpError = require("../models/http-error");
 const User = require('../models/user');
-const { error } = require("console");
 
 const getUsers = async (req, res, next) => {
   let users;
@@ -32,7 +31,7 @@ const signup = async (req, res, next) => {
       new HttpError("Invalid inputs passed, please check your data.", 422)
     );
   }
-  const { name, email, password } = req.body;
+  const { name, email, password, plan } = req.body;
 
   let existingUser;
   try {
@@ -65,6 +64,7 @@ const signup = async (req, res, next) => {
     name,
     email,
     password: hashedPassword,
+    plan: plan
   });
 
   try {
@@ -99,6 +99,7 @@ const login = async (req, res, next) => {
   try {
     existingUser = await User.findOne({ email: email });
   } catch (err) {
+    console.log(err)
     const error = new HttpError(
       "Logging in failed, please try again later.",
       500
@@ -110,6 +111,7 @@ const login = async (req, res, next) => {
   try {
     isValidPassword = await bcrypt.compare(password, existingUser.password);
   } catch (err) {
+    console.log(err)
     const error = new HttpError(
       "Could not log you in, please check your credentials and try again",
       500
@@ -133,6 +135,7 @@ const login = async (req, res, next) => {
       { expiresIn: "1h" }
     );
   } catch (err) {
+    console.log(err)
     const error = new HttpError("Logging in failed, please try again.", 500);
     return next(error);
   }
@@ -160,9 +163,12 @@ exports.deleteUser = async (req, res, next) =>{
   try{
     const user = await User.findById(req.body.userId);
     for(const image of user.images){
+      console.log('deleting image',image)
       await image.deleteOne()
     }
+    console.log('deleting user', user)
     await user.deleteOne();
+    res.status(200).json({user: user})
   }
   catch(err){
     console.log(err)
@@ -227,6 +233,7 @@ exports.postNewPassword = async (req, res, next) => {
 };
 
 exports.getUserByResetToken = async (req, res, next) =>{
+  console.log('hello')
   try{
     const token = req.params.token;
     const user = await User.findOne({ resetToken: token, resetTokenExpiration: { $gt: Date.now() } }).exec()

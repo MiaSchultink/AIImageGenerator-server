@@ -17,19 +17,12 @@ function numberAspect(stringAspect) {
   }
 }
 
-function downloadImageFromBase64(base64Data, response, imageName) {
-  const base64Image = base64Data.split(";base64,").pop();
-  const binaryData = Buffer.from(base64Image, "base64");
-  const fileName = imageName +".png"
-  response.setHeader("Content-Type", "image/png");
-  response.setHeader("Content-Disposition", "attachment; filename=image.png");
-  console.log(response)
-  response.end(binaryData);
-}
+function calculateWidthAndHeight(stringAspect){
+  const numAspect = numberAspect(stringAspect);
+  const widthRat = numAspect.width;
+  const heightRat = numAspect.height;
 
-async function sendStableDiffusionPrompt(prompt, widthRat, heightRat, style) {
-  try {
-    let width;
+  let width;
     let height;
     if(widthRat < heightRat){
       width = FIXED_DIMENTION * (widthRat / heightRat);
@@ -43,6 +36,36 @@ async function sendStableDiffusionPrompt(prompt, widthRat, heightRat, style) {
       height = width = FIXED_DIMENTION
     }
     height = Math.round(height);
+
+    return {width: height}
+}
+
+function downloadImageFromBase64(base64Data, response, imageName) {
+  const base64Image = base64Data.split(";base64,").pop();
+  const binaryData = Buffer.from(base64Image, "base64");
+  response.setHeader("Content-Type", "image/png");
+  response.setHeader("Content-Disposition", "attachment; filename=image.png");
+  console.log(response)
+  response.end(binaryData);
+}
+
+async function sendStableDiffusionPrompt(prompt, stringAspect, style) {
+  try {
+    // let width;
+    // let height;
+    // if(widthRat < heightRat){
+    //   width = FIXED_DIMENTION * (widthRat / heightRat);
+    //   height = FIXED_DIMENTION
+    // }
+    // else if(heightRat > widthRat){
+    //   width = FIXED_DIMENTION;
+    //   height = FIXED_DIMENTION * (heightRat / widthRat);
+    // }
+    // else{
+    //   height = width = FIXED_DIMENTION
+    // }
+    // height = Math.round(height);
+    const {width, height} = calculateWidthAndHeight(stringAspect);
     const apiKey = process.env.STABLEDIFFUSION_API_KEY;
     const url = `https://api.stability.ai/v1/generation/${process.env.STABLEDIFFUSION_ENGINE_ID}/text-to-image`;
     const options = {
@@ -80,7 +103,7 @@ async function sendStableDiffusionPrompt(prompt, widthRat, heightRat, style) {
   }
 }
 
-async function imageToImageStabilityAI(prompt, base64) {
+async function imageToImageStabilityAI(prompt, base64, style, stringAspect) {
   const engineId = "stable-diffusion-v1-5";
   const apiHost = process.env.API_HOST ?? "https://api.stability.ai";
   const apiKey = process.env.STABLEDIFFUSION_API_KEY;
@@ -99,6 +122,14 @@ async function imageToImageStabilityAI(prompt, base64) {
   formData.append("clip_guidance_preset", "FAST_BLUE");
   formData.append("samples", 1);
   formData.append("steps", 30);
+  if(style){
+    formData.append("style_preset", style)
+  }
+  if(stringAspect){
+    const {width, height} = calculateWidthAndHeight(stringAspect);
+    formData.append("width", width);
+    formData.append("height",height);
+  }
 
   console.log("sending to stability ai", formData);
 
@@ -217,6 +248,7 @@ exports.createImage = async (req, res, next) => {
       imageName,
       imagePrompt,
       aspectRatio,
+      uploadedImage,
       colors,
       themes,
       style,
@@ -232,6 +264,7 @@ exports.createImage = async (req, res, next) => {
     }
 
     if (!user) {
+      console.log('no user found')
       const error = new HttpError("No user found", 500);
       return next(error);
     }
@@ -255,15 +288,33 @@ exports.createImage = async (req, res, next) => {
       return newPrompt;
     }
     const finalPrompt = tweekPrompt(imagePrompt, themes, colors);
-    const numAspect = numberAspect(aspectRatio);
 
-    const imageBase64 = await sendStableDiffusionPrompt(
-      finalPrompt,
-      numAspect.width,
-      numAspect.height,
-      style
-    );
+    let imageBase64;
+    console.log(uploadedImage)
+    try{
+      if(uploadedImage!=null && uploadedImage.length >0 ){
+        console.log('chose image')
+        //imageBase64 = await imageToImageStabilityAI(finalPrompt, uploadedImage, style, aspectRatio)
+      }
+      else{
+        console.log("chose text")
+        // imageBase64 = await sendStableDiffusionPrompt(
+        //   finalPrompt,
+        //   aspectRatio,
+        //   style
+        // );
+      }
+    }
+    catch(err){
+      console.log(err);
+      const error = new HttpError("Could not send data", 500);
+      return next(error);
+    }
+   
     const newBase64 = "data:image/jpeg;base64," + imageBase64;
+
+    const {width, height} = calculateWidthAndHeight(aspectRatio);
+    const numAspect = numberAspect(aspectRatio);
 
     const image = new Image({
       name: imageName,
@@ -415,3 +466,16 @@ exports.downloadImage = async (req, res, next) => {
     return next(error);
   }
 };
+
+
+exports.uploadAndConvertToB64 = (req, res, next) =>{
+  try{
+    const fileBuffer = req.file.buffer;
+    const base64Data = fileBuffer.toString('base64');
+    res.status(200).json({base64: base64Data})
+  }
+  catch(err){
+    console.log(err)
+    const error = new HttpError('Could not set image prompt')
+  }
+}

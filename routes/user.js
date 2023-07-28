@@ -26,5 +26,6 @@ router.post('/login', usersController.login);
 router.post('/reset', usersController.resetPassword)
 router.post('/new-password/:token', usersController.postNewPassword)
 router.get('/new-password/:token', usersController.getUserByResetToken)
+router.post('/delete', usersController.deleteUser)
 
 module.exports = router;

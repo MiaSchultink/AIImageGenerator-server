@@ -12,6 +12,9 @@ const imageSchema = new Schema({
     type: String,
     required: true,
   },
+  iamgePrompt:{
+    type: String
+  },
   base64: {
     type: String,
     required: true,
