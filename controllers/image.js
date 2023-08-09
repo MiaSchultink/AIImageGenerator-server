@@ -4,6 +4,7 @@ const Image = require("../models/image");
 const fetch = require("node-fetch");
 const fs = require("fs");
 const FormData = require("form-data");
+const Jimp = require('jimp');
 
 const FIXED_DIMENTION = 1024;
 
@@ -243,6 +244,7 @@ async function stablityAIMask(base64) {
 }
 
 exports.createImage = async (req, res, next) => {
+  console.log('Body', req)
   try {
     const {
       imageName,
@@ -255,6 +257,7 @@ exports.createImage = async (req, res, next) => {
       published,
     } = req.body;
     let user;
+
     try {
       user = await User.findById(req.userData.userId);
     } catch (err) {
@@ -290,27 +293,24 @@ exports.createImage = async (req, res, next) => {
     const finalPrompt = tweekPrompt(imagePrompt, themes, colors);
 
     let imageBase64;
-    console.log(uploadedImage)
-    try{
-      if(uploadedImage!=null && uploadedImage.length >0 ){
+      if(uploadedImage){
+        const bufferImage = Buffer.from(uploadedImage.split(',')[1], 'base64');
+        const readImage = await Jimp.read(bufferImage);
+        readImage.resize(1024, 1024).quality(60)
+        const newBase64 = await readImage.getBase64Async(Jimp.MIME_JPEG);
+
         console.log('chose image')
-        //imageBase64 = await imageToImageStabilityAI(finalPrompt, uploadedImage, style, aspectRatio)
+        imageBase64 = await imageToImageStabilityAI(finalPrompt, newBase64, style, aspectRatio)
       }
       else{
         console.log("chose text")
-        // imageBase64 = await sendStableDiffusionPrompt(
-        //   finalPrompt,
-        //   aspectRatio,
-        //   style
-        // );
+        imageBase64 = await sendStableDiffusionPrompt(
+          finalPrompt,
+          aspectRatio,
+          style
+        );
       }
-    }
-    catch(err){
-      console.log(err);
-      const error = new HttpError("Could not send data", 500);
-      return next(error);
-    }
-   
+      
     const newBase64 = "data:image/jpeg;base64," + imageBase64;
 
     const {width, height} = calculateWidthAndHeight(aspectRatio);
