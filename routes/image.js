@@ -14,5 +14,6 @@ router.post('/correct/:imageId', auth, imageController.editImage)
 router.post('/upscale/:imageId',auth, imageController.upscale)
 router.post('/mask/:imageId', auth, imageController.mask)
 router.post('/download/:imageId', imageController.downloadImage)
+router.post('/suggest-prompt', auth, imageController.getPromptSuggestion);
 
 module.exports = router;

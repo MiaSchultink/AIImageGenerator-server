@@ -4,7 +4,8 @@ const Image = require("../models/image");
 const fetch = require("node-fetch");
 const fs = require("fs");
 const FormData = require("form-data");
-const Jimp = require('jimp');
+const Jimp = require("jimp");
+const getChatGPTAPIResponse = require("../util/getGPTData");
 
 const FIXED_DIMENTION = 1024;
 
@@ -18,27 +19,25 @@ function numberAspect(stringAspect) {
   }
 }
 
-function calculateWidthAndHeight(stringAspect){
+function calculateWidthAndHeight(stringAspect) {
   const numAspect = numberAspect(stringAspect);
   const widthRat = numAspect.width;
   const heightRat = numAspect.height;
 
   let width;
-    let height;
-    if(widthRat < heightRat){
-      width = FIXED_DIMENTION * (widthRat / heightRat);
-      height = FIXED_DIMENTION
-    }
-    else if(heightRat > widthRat){
-      width = FIXED_DIMENTION;
-      height = FIXED_DIMENTION * (heightRat / widthRat);
-    }
-    else{
-      height = width = FIXED_DIMENTION
-    }
-    height = Math.round(height);
+  let height;
+  if (widthRat < heightRat) {
+    width = FIXED_DIMENTION * (widthRat / heightRat);
+    height = FIXED_DIMENTION;
+  } else if (heightRat > widthRat) {
+    width = FIXED_DIMENTION;
+    height = FIXED_DIMENTION * (heightRat / widthRat);
+  } else {
+    height = width = FIXED_DIMENTION;
+  }
+  height = Math.round(height);
 
-    return {width: height}
+  return { width: height };
 }
 
 function downloadImageFromBase64(base64Data, response, imageName) {
@@ -46,27 +45,21 @@ function downloadImageFromBase64(base64Data, response, imageName) {
   const binaryData = Buffer.from(base64Image, "base64");
   response.setHeader("Content-Type", "image/png");
   response.setHeader("Content-Disposition", "attachment; filename=image.png");
-  console.log(response)
+  console.log(response);
   response.end(binaryData);
+}
+
+async function getKeyWordFromPrompt(prompt){
+  let GPTPrompt = 'You are a summarizer and title writter. You are given the following image prompt: '+prompt;
+  GPTPrompt+="Your goal is to construct a creative, intreguiing, informative title for the image based on the most important information in the given prompt."
+  GPTPrompt+="Provide only the title and no introductory or explanitory text about the title in your response."
+  const GPTResponse = await getChatGPTAPIResponse(prompt);
+  return GPTResponse;
 }
 
 async function sendStableDiffusionPrompt(prompt, stringAspect, style) {
   try {
-    // let width;
-    // let height;
-    // if(widthRat < heightRat){
-    //   width = FIXED_DIMENTION * (widthRat / heightRat);
-    //   height = FIXED_DIMENTION
-    // }
-    // else if(heightRat > widthRat){
-    //   width = FIXED_DIMENTION;
-    //   height = FIXED_DIMENTION * (heightRat / widthRat);
-    // }
-    // else{
-    //   height = width = FIXED_DIMENTION
-    // }
-    // height = Math.round(height);
-    const {width, height} = calculateWidthAndHeight(stringAspect);
+    const { width, height } = calculateWidthAndHeight(stringAspect);
     const apiKey = process.env.STABLEDIFFUSION_API_KEY;
     const url = `https://api.stability.ai/v1/generation/${process.env.STABLEDIFFUSION_ENGINE_ID}/text-to-image`;
     const options = {
@@ -123,13 +116,13 @@ async function imageToImageStabilityAI(prompt, base64, style, stringAspect) {
   formData.append("clip_guidance_preset", "FAST_BLUE");
   formData.append("samples", 1);
   formData.append("steps", 30);
-  if(style){
-    formData.append("style_preset", style)
+  if (style) {
+    formData.append("style_preset", style);
   }
-  if(stringAspect){
-    const {width, height} = calculateWidthAndHeight(stringAspect);
+  if (stringAspect) {
+    const { width, height } = calculateWidthAndHeight(stringAspect);
     formData.append("width", width);
-    formData.append("height",height);
+    formData.append("height", height);
   }
 
   console.log("sending to stability ai", formData);
@@ -243,8 +236,23 @@ async function stablityAIMask(base64) {
   });
 }
 
+async function getGPTPromptSuggestions(userPompt) {
+  const openAIprompt = `You are a photographer and image prompt writer.
+      You are provided with the following text: ${userPompt}.
+      Yout goal is to create a concise, detailed prompt describing an.
+      The prompt should be like a verbal desription of the image and should not include direct instructions suck as 'create an image'.
+      Be concise in your response. Make sure to include details related to the forground and the background of the image.`;
+  try {
+    const GPTResponse = await getChatGPTAPIResponse(openAIprompt);
+    console.log('response', GPTResponse);
+    return GPTResponse
+  } catch (err) {
+    console.log(err);
+  }
+}
+
 exports.createImage = async (req, res, next) => {
-  console.log('Body', req)
+  console.log("Body", req);
   try {
     const {
       imageName,
@@ -256,6 +264,9 @@ exports.createImage = async (req, res, next) => {
       style,
       published,
     } = req.body;
+
+    const generatedName = await getKeyWordFromPrompt(imagePrompt);
+    console.log(generatedName)
     let user;
 
     try {
@@ -267,7 +278,7 @@ exports.createImage = async (req, res, next) => {
     }
 
     if (!user) {
-      console.log('no user found')
+      console.log("no user found");
       const error = new HttpError("No user found", 500);
       return next(error);
     }
@@ -293,27 +304,29 @@ exports.createImage = async (req, res, next) => {
     const finalPrompt = tweekPrompt(imagePrompt, themes, colors);
 
     let imageBase64;
-      if(uploadedImage){
-        const bufferImage = Buffer.from(uploadedImage.split(',')[1], 'base64');
-        const readImage = await Jimp.read(bufferImage);
-        readImage.resize(1024, 1024).quality(60)
-        const newBase64 = await readImage.getBase64Async(Jimp.MIME_JPEG);
+    if (uploadedImage) {
+      const bufferImage = Buffer.from(uploadedImage.split(",")[1], "base64");
+      const readImage = await Jimp.read(bufferImage);
+      readImage.resize(1024, 1024).quality(60);
+      const newBase64 = await readImage.getBase64Async(Jimp.MIME_JPEG);
 
-        console.log('chose image')
-        imageBase64 = await imageToImageStabilityAI(finalPrompt, newBase64, style, aspectRatio)
-      }
-      else{
-        console.log("chose text")
-        imageBase64 = await sendStableDiffusionPrompt(
-          finalPrompt,
-          aspectRatio,
-          style
-        );
-      }
-      
+      console.log("chose image");
+      imageBase64 = await imageToImageStabilityAI(
+        finalPrompt,
+        newBase64,
+        style,
+        aspectRatio
+      );
+    } else {
+      console.log("chose text");
+      imageBase64 = await sendStableDiffusionPrompt(
+        finalPrompt,
+        aspectRatio,
+        style
+      );
+    }
+
     const newBase64 = "data:image/jpeg;base64," + imageBase64;
-
-    const {width, height} = calculateWidthAndHeight(aspectRatio);
     const numAspect = numberAspect(aspectRatio);
 
     const image = new Image({
@@ -352,7 +365,7 @@ exports.getAllPublishedImages = async (req, res, next) => {
 };
 
 exports.deleteImage = async (req, res, next) => {
-  const imageId = req.params.imageId; 
+  const imageId = req.params.imageId;
   try {
     const image = await Image.findById(imageId).populate("creator");
     const user = await User.findById(image.creator);
@@ -459,7 +472,7 @@ exports.downloadImage = async (req, res, next) => {
     return next(error);
   }
   try {
-    downloadImageFromBase64(image.base64, res, image.name)
+    downloadImageFromBase64(image.base64, res, image.name);
   } catch (err) {
     console.log(err);
     const error = new HttpError("Could not download image", 500);
@@ -467,15 +480,39 @@ exports.downloadImage = async (req, res, next) => {
   }
 };
 
-
-exports.uploadAndConvertToB64 = (req, res, next) =>{
-  try{
+exports.uploadAndConvertToB64 = (req, res, next) => {
+  try {
     const fileBuffer = req.file.buffer;
-    const base64Data = fileBuffer.toString('base64');
-    res.status(200).json({base64: base64Data})
+    const base64Data = fileBuffer.toString("base64");
+    res.status(200).json({ base64: base64Data });
+  } catch (err) {
+    console.log(err);
+    const error = new HttpError("Could not set image prompt");
+    return next(error);
   }
-  catch(err){
-    console.log(err)
-    const error = new HttpError('Could not set image prompt')
+};
+
+exports.getPromptSuggestion = async (req, res, next) => {
+  let user;
+  try {
+    user = await User.findById(req.userData.userId);
+  } catch (err) {
+    console.log(err);
+    const error = new HttpError("Could not find user", 404);
+    return next(error);
   }
-}
+
+  if (user) {
+    try {
+      const suggestion = await getGPTPromptSuggestions(req.body.userPrompt);
+      res.status(200).json({ suggestion: suggestion });
+    } catch (err) {
+      console.log(err);
+      const error = new HttpError("Could not get sugestion", 500);
+      return next(error);
+    }
+  }
+};
+
+
+
