@@ -49,14 +49,6 @@ function downloadImageFromBase64(base64Data, response, imageName) {
   response.end(binaryData);
 }
 
-async function getKeyWordFromPrompt(prompt){
-  let GPTPrompt = 'You are a summarizer and title writter. You are given the following image prompt: '+prompt;
-  GPTPrompt+="Your goal is to construct a creative, intreguiing, informative title for the image based on the most important information in the given prompt."
-  GPTPrompt+="Provide only the title and no introductory or explanitory text about the title in your response."
-  const GPTResponse = await getChatGPTAPIResponse(prompt);
-  return GPTResponse;
-}
-
 async function sendStableDiffusionPrompt(prompt, stringAspect, style) {
   try {
     const { width, height } = calculateWidthAndHeight(stringAspect);
@@ -236,26 +228,19 @@ async function stablityAIMask(base64) {
   });
 }
 
-async function getGPTPromptSuggestions(userPompt) {
-  const openAIprompt = `You are a photographer and image prompt writer.
-      You are provided with the following text: ${userPompt}.
-      Yout goal is to create a concise, detailed prompt describing an.
-      The prompt should be like a verbal desription of the image and should not include direct instructions suck as 'create an image'.
-      Be concise in your response. Make sure to include details related to the forground and the background of the image.`;
-  try {
-    const GPTResponse = await getChatGPTAPIResponse(openAIprompt);
-    console.log('response', GPTResponse);
-    return GPTResponse
-  } catch (err) {
-    console.log(err);
-  }
-}
-
 exports.createImage = async (req, res, next) => {
+
+  async function getKeyWordFromPrompt(prompt){
+    let GPTPrompt = 'You are a summarizer and title writter. You are given the following image prompt: '+prompt;
+    GPTPrompt+="Your goal is to construct an informative, short title for the image based on the most important information in the given prompt."
+    GPTPrompt+="Provide only the title and no introductory or explanitory text about the title in your response."
+    const GPTResponse = await getChatGPTAPIResponse(GPTPrompt);
+    return GPTResponse;
+  }
+
   console.log("Body", req);
   try {
     const {
-      imageName,
       imagePrompt,
       aspectRatio,
       uploadedImage,
@@ -330,7 +315,7 @@ exports.createImage = async (req, res, next) => {
     const numAspect = numberAspect(aspectRatio);
 
     const image = new Image({
-      name: imageName,
+      name: generatedName,
       prompt: finalPrompt,
       base64: newBase64,
       creator: user._id,
@@ -493,6 +478,20 @@ exports.uploadAndConvertToB64 = (req, res, next) => {
 };
 
 exports.getPromptSuggestion = async (req, res, next) => {
+async function getGPTPromptSuggestions(userPompt) {
+  const openAIprompt = `You are a photographer and image prompt writer.
+      You are provided with the following text: ${userPompt}.
+      Yout goal is to create a concise, detailed prompt describing an.
+      The prompt should be like a verbal desription of the image and should not include direct instructions suck as 'create an image'.
+      Be concise in your response. Make sure to include details related to the forground and the background of the image.`;
+  try {
+    const GPTResponse = await getChatGPTAPIResponse(openAIprompt);
+    console.log('response', GPTResponse);
+    return GPTResponse
+  } catch (err) {
+    console.log(err);
+  }
+}
   let user;
   try {
     user = await User.findById(req.userData.userId);
