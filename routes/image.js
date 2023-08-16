@@ -12,7 +12,6 @@ router.post('/delete/:imageId', auth, imageController.deleteImage);
 router.get('/:imageId', imageController.getImage);
 router.post('/correct/:imageId', auth, imageController.editImage)
 router.post('/upscale/:imageId',auth, imageController.upscale)
-router.post('/mask/:imageId', auth, imageController.mask)
 router.post('/download/:imageId', imageController.downloadImage)
 router.post('/suggest-prompt', auth, imageController.getPromptSuggestion);
 

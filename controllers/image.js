@@ -181,53 +181,6 @@ async function stabilitAIUpscale(base64) {
   return newBase64;
 }
 
-async function stablityAIMask(base64) {
-  const engineId = "stable-inpainting-512-v2-0";
-  const apiHost = process.env.API_HOST ?? "https://api.stability.ai";
-  const apiKey = process.env.STABLEDIFFUSION_API_KEY;
-
-  if (!apiKey) throw new Error("Missing Stability API key.");
-
-  const formData = new FormData();
-  formData.append("init_image", fs.readFileSync("galaxy.png"));
-  formData.append("mask_image", fs.readFileSync("galaxy2.png"));
-  formData.append("mask_source", "MASK_IMAGE_WHITE");
-  formData.append(
-    "text_prompts[0][text]",
-    "A large spiral galaxy with a bright central bulge and a ring of stars around it"
-  );
-  formData.append("cfg_scale", "7");
-  formData.append("clip_guidance_preset", "FAST_BLUE");
-  formData.append("samples", 1);
-  formData.append("steps", 30);
-
-  const response = await fetch(
-    `${apiHost}/v1/generation/${engineId}/image-to-image/masking`,
-    {
-      method: "POST",
-      headers: {
-        ...formData.getHeaders(),
-        Accept: "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: formData,
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error(`Non-200 response: ${await response.text()}`);
-  }
-
-  const responseJSON = await response.json();
-
-  responseJSON.artifacts.forEach((image, index) => {
-    fs.writeFileSync(
-      `v1_img2img_masking_${index}.png`,
-      Buffer.from(image.base64, "base64")
-    );
-  });
-}
-
 exports.createImage = async (req, res, next) => {
 
   async function getKeyWordFromPrompt(prompt){
@@ -422,27 +375,6 @@ exports.upscale = async (req, res, next) => {
   } catch (err) {
     console.log(err);
     const error = new HttpError("Failed to upscale image", 500);
-    return next(error);
-  }
-};
-
-exports.mask = async (req, res, next) => {
-  let image;
-  try {
-    image = await Image.findById(req.params.imageId);
-  } catch (err) {
-    console.log(err);
-    const error = new HttpError("Could not find image", 404);
-    return next(error);
-  }
-  try {
-    const newBase64 = await stablityAIMask(image.base64);
-    const modifiedBase64 = "data:image/jpeg;base64," + newBase64;
-
-    res.status(200).json({ newImage: image });
-  } catch (err) {
-    console.log(err);
-    const error = new HttpError("Could not mask image", 500);
     return next(error);
   }
 };
